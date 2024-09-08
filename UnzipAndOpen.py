@@ -39,3 +39,4 @@ if __name__ == '__main__':
     
     # If no build file is found, raise an error
     assert success, 'Valid build file (one of: %s) not found' % ', '.join(build_files)
+    print("....Done")

@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: my stack template
+
+# my VPC with public subnet and Internet Gateway
+
+Parameters:
+  myVpcCidr:
+    Type: String
+    Default: 10.0.0.0/20
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/24
+
+  AmazonLinuxAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+  ###########
+  # VPC with Internet Gateway
+  ###########
+
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref myVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: my VPC
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: my IGW
+
+  VPCtoIGWConnection:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn:
+      - IGW
+      - myVPC
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref myVPC
+
+  PresentationEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmazonLinuxAMIID
+      InstanceType: t3.micro
+      SecurityGroupIds:
+        - !Ref ApplicationSecurityGroup
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: my Presentation Server
+
+  ApplicationEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmazonLinuxAMIID
+      InstanceType: t3.micro
+      SecurityGroupIds:
+        - !Ref ApplicationSecurityGroup
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: my Application Server
+
+  myBackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: myAccraBackupBucket
+
+  ###########
+  # Public Route Table
+  ###########
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: myVPC
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - PublicRouteTable
+      - IGW
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable
+
+  ###########
+  # Public Subnet
+  ###########
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    DependsOn: myVPC
+    Properties:
+      VpcId: !Ref myVPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      Tags:
+        - Key: Name
+          Value: Public Subnet
+
+  PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - PublicRouteTable
+      - PublicSubnet
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  ###########
+  # Presentation Security Group
+  ###########
+
+  PresentationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: myVPC
+    Properties:
+      GroupName: myPresentation
+      GroupDescription: Enable access to App
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: my Public SG
+
+  ###########
+  # Application Security Group
+  ###########
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: myVPC
+    Properties:
+      GroupName: myApp
+      GroupDescription: Enable access to App
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: my Private SG
+
+###########
+# Outputs
+###########
+
+Outputs:
+  myVPCDefaultSecurityGroup:
+    Value: !Sub ${myVPC.DefaultSecurityGroup}
